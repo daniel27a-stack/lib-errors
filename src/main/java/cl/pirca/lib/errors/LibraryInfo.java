@@ -1,0 +1,10 @@
+package cl.pirca.lib.errors;
+
+/**
+ * Minimal bean registered by {@link LibraryAutoConfiguration}. Replace it with the real
+ * technical content of the lib-errors library.
+ *
+ * @param name the name of the library
+ */
+public record LibraryInfo(String name) {
+}
