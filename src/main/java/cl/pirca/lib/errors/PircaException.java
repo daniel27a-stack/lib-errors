@@ -26,6 +26,21 @@ public abstract class PircaException extends RuntimeException {
     }
 
     /**
+     * Creates the exception with the original exception that caused it. The cause is logged by
+     * {@code ErrorsControllerAdvice}, never sent in the answer.
+     *
+     * @param code the stable code for machines
+     * @param message the human message
+     * @param status the HTTP status of the answer
+     * @param cause the original exception, may be {@code null}
+     */
+    protected PircaException(String code, String message, HttpStatusCode status, Throwable cause) {
+        super(message, cause);
+        this.code = code;
+        this.status = status;
+    }
+
+    /**
      * Returns the stable code for machines.
      *
      * @return the code

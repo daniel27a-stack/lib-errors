@@ -27,6 +27,16 @@ public class ExpenseNotFoundException extends PircaException {
 }
 ```
 
+To keep the original exception when wrapping another one, use the constructor that also takes a
+cause. The cause is optional; it is logged by `ErrorsControllerAdvice` (with its stack trace) and
+never sent in the answer:
+
+```java
+public ExpenseNotFoundException(String id, Throwable cause) {
+    super("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.", HttpStatus.NOT_FOUND, cause);
+}
+```
+
 ### Common cases
 
 Four ready-made exceptions cover the most common HTTP cases, so a service does not need a subclass
@@ -41,6 +51,13 @@ for each error. The status is fixed by the class; whoever throws it gives the co
 
 ```java
 throw new NotFoundException("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.");
+```
+
+Each one also has a `(code, message, cause)` constructor. The cause is optional, it is logged by
+`ErrorsControllerAdvice` (with its stack trace) and never sent in the answer:
+
+```java
+throw new NotFoundException("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.", ex);
 ```
 
 ### The answers

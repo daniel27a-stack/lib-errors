@@ -18,9 +18,29 @@ class PircaExceptionTest {
         assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
     }
 
+    @Test
+    void withoutCauseGetCauseIsNull() {
+        assertThat(new TestException().getCause()).isNull();
+    }
+
+    @Test
+    void aSubclassCanCarryACause() {
+        IllegalStateException cause = new IllegalStateException("original");
+        TestException ex = new TestException(cause);
+
+        assertThat(ex.getCause()).isSameAs(cause);
+        assertThat(ex.getCode()).isEqualTo("TEST_FAILED");
+        assertThat(ex.getMessage()).isEqualTo("The test failed.");
+        assertThat(ex.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+    }
+
     static class TestException extends PircaException {
         TestException() {
             super("TEST_FAILED", "The test failed.", HttpStatusCode.valueOf(409));
+        }
+
+        TestException(Throwable cause) {
+            super("TEST_FAILED", "The test failed.", HttpStatusCode.valueOf(409), cause);
         }
     }
 }
