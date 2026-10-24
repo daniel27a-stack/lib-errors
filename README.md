@@ -27,6 +27,22 @@ public class ExpenseNotFoundException extends PircaException {
 }
 ```
 
+### Common cases
+
+Four ready-made exceptions cover the most common HTTP cases, so a service does not need a subclass
+for each error. The status is fixed by the class; whoever throws it gives the code and the message:
+
+| Exception | Status |
+|---|---|
+| `BadRequestException` | 400 |
+| `ForbiddenException` | 403 |
+| `NotFoundException` | 404 |
+| `ConflictException` | 409 |
+
+```java
+throw new NotFoundException("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.");
+```
+
 ### The answers
 
 `ErrorsControllerAdvice` is a `@RestControllerAdvice` that answers `application/problem+json`.
