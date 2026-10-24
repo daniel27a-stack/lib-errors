@@ -3,16 +3,64 @@
 Spring Boot auto-configuration library generated with `java-skeleton` (Gradle + `java-library`
 plugin, Spring Boot BOM imported as a `platform()`; it is a plain jar, not an executable one).
 
-## Spring Boot auto-configuration
+## Usage
 
-Adding this library as a dependency of a Spring Boot application is enough to activate it: no
-`@Import` or `@ComponentScan` is needed. The auto-configuration classes are listed in
-`src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
+The library carries the pirca error design: one base exception and a `ProblemDetail` (RFC 9457)
+answer. It is technical only; domain errors belong to each service.
 
-The placeholder `LibraryAutoConfiguration` registers a `LibraryInfo` bean with
-`@ConditionalOnMissingBean`, so a consumer can override it by defining its own bean. Replace it
-with the real technical content of the library and keep new auto-configuration classes listed in
-the `.imports` file. `LibraryAutoConfigurationIntTest` proves the activation.
+Adding the dependency to a Spring Boot servlet application is enough to activate it: no `@Import`
+or `@ComponentScan` is needed. `ErrorsAutoConfiguration` is listed in
+`src/main/resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
+and registers the `ErrorsControllerAdvice` bean.
+
+### The base exception
+
+`cl.pirca.lib.errors.PircaException` is an abstract, unchecked exception (`RuntimeException`) with
+a `code`, a `message` and an HTTP `status`. A service extends it for each domain error. The code is
+stable, for machines, uppercase with underscores:
+
+```java
+public class ExpenseNotFoundException extends PircaException {
+    public ExpenseNotFoundException(String id) {
+        super("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.", HttpStatus.NOT_FOUND);
+    }
+}
+```
+
+### The answers
+
+`ErrorsControllerAdvice` is a `@RestControllerAdvice` that answers `application/problem+json`.
+Spring MVC's own errors (404, 405, 400...) keep their real status.
+
+A `PircaException` is answered with its own status:
+
+```json
+{
+  "type": "urn:pirca:error:EXPENSE_NOT_FOUND",
+  "title": "Not Found",
+  "status": 404,
+  "detail": "Expense 7 was not found.",
+  "code": "EXPENSE_NOT_FOUND"
+}
+```
+
+Any other exception is answered with a generic 500. Its message and stack trace are logged, never
+sent:
+
+```json
+{
+  "type": "urn:pirca:error:internal",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "An unexpected error occurred.",
+  "code": "INTERNAL_ERROR"
+}
+```
+
+No trace or correlation id is added (left to `lib-logging`).
+
+To replace the advice, define your own bean of type `ErrorsControllerAdvice`; the library's one
+backs off (`@ConditionalOnMissingBean`).
 
 ## Build and test
 
