@@ -7,9 +7,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -17,6 +20,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@ExtendWith(OutputCaptureExtension.class)
 class ErrorsControllerAdviceTest {
 
     private MockMvc mockMvc;
@@ -39,6 +43,44 @@ class ErrorsControllerAdviceTest {
                 .andExpect(jsonPath("$.type").value("urn:pirca:error:TEST_FAILED"))
                 .andExpect(jsonPath("$.code").value("TEST_FAILED"))
                 .andExpect(jsonPath("$.traceId").doesNotExist());
+    }
+
+    @Test
+    void aCauseNeverTravelsInTheAnswer() throws Exception {
+        String body = mockMvc.perform(get("/pirca-cause"))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("The test failed."))
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.type").value("urn:pirca:error:TEST_FAILED"))
+                .andExpect(jsonPath("$.code").value("TEST_FAILED"))
+                .andExpect(jsonPath("$.cause").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body)
+                .doesNotContain("secret-cause-detail")
+                .doesNotContain("IllegalStateException")
+                .doesNotContain("stackTrace");
+    }
+
+    @Test
+    void aCauseIsLoggedWithItsStackTrace(CapturedOutput output) throws Exception {
+        mockMvc.perform(get("/pirca-cause")).andExpect(status().isConflict());
+
+        assertThat(output.getAll())
+                .contains("Pirca error TEST_FAILED has a cause")
+                .contains("secret-cause-detail")
+                .contains("IllegalStateException")
+                .contains("at cl.pirca.lib.errors.");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/pirca", "/bad-request", "/forbidden", "/not-found", "/conflict"})
+    void withoutACauseNothingIsLogged(String path, CapturedOutput output) throws Exception {
+        mockMvc.perform(get(path));
+
+        assertThat(output.getAll()).doesNotContain("Pirca error");
     }
 
     @Test
@@ -112,6 +154,11 @@ class ErrorsControllerAdviceTest {
             throw new TestException();
         }
 
+        @GetMapping("/pirca-cause")
+        String pircaCause() {
+            throw new TestException(new IllegalStateException("secret-cause-detail"));
+        }
+
         @GetMapping("/boom")
         String boom() {
             throw new IllegalStateException("secret-internal-detail");
@@ -121,6 +168,10 @@ class ErrorsControllerAdviceTest {
     static class TestException extends PircaException {
         TestException() {
             super("TEST_FAILED", "The test failed.", HttpStatusCode.valueOf(409));
+        }
+
+        TestException(Throwable cause) {
+            super("TEST_FAILED", "The test failed.", HttpStatusCode.valueOf(409), cause);
         }
     }
 }

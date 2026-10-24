@@ -28,6 +28,9 @@ public class ErrorsControllerAdvice extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler(PircaException.class)
     public ResponseEntity<ProblemDetail> handlePirca(PircaException ex) {
+        if (ex.getCause() != null) {
+            LOG.warn("Pirca error " + ex.getCode() + " has a cause", ex.getCause());
+        }
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(ex.getStatus(), ex.getMessage());
         HttpStatus standard = HttpStatus.resolve(ex.getStatus().value());
         problem.setTitle(standard != null ? standard.getReasonPhrase() : "Error");
