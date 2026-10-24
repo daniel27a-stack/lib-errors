@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -63,8 +65,47 @@ class ErrorsControllerAdviceTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "/bad-request, 400, Bad Request",
+        "/forbidden, 403, Forbidden",
+        "/not-found, 404, Not Found",
+        "/conflict, 409, Conflict"
+    })
+    void aCommonHttpExceptionIsAnsweredWithItsFixedStatus(String path, int status, String title)
+            throws Exception {
+        mockMvc.perform(get(path))
+                .andExpect(status().is(status))
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.status").value(status))
+                .andExpect(jsonPath("$.title").value(title))
+                .andExpect(jsonPath("$.detail").value("Sample message."))
+                .andExpect(jsonPath("$.code").value("SAMPLE_CODE"))
+                .andExpect(jsonPath("$.type").value("urn:pirca:error:SAMPLE_CODE"));
+    }
+
     @RestController
     static class TestController {
+
+        @GetMapping("/bad-request")
+        String badRequest() {
+            throw new BadRequestException("SAMPLE_CODE", "Sample message.");
+        }
+
+        @GetMapping("/forbidden")
+        String forbidden() {
+            throw new ForbiddenException("SAMPLE_CODE", "Sample message.");
+        }
+
+        @GetMapping("/not-found")
+        String notFound() {
+            throw new NotFoundException("SAMPLE_CODE", "Sample message.");
+        }
+
+        @GetMapping("/conflict")
+        String conflict() {
+            throw new ConflictException("SAMPLE_CODE", "Sample message.");
+        }
 
         @GetMapping("/pirca")
         String pirca() {
