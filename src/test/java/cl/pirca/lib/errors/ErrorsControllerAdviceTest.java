@@ -2,6 +2,7 @@ package cl.pirca.lib.errors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,9 +14,11 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -65,14 +68,14 @@ class ErrorsControllerAdviceTest {
     }
 
     @Test
-    void aCauseIsLoggedWithItsStackTrace(CapturedOutput output) throws Exception {
-        mockMvc.perform(get("/pirca-cause")).andExpect(status().isConflict());
+    void theAdviceDoesNotLogACause(CapturedOutput output) throws Exception {
+        MvcResult result = mockMvc.perform(get("/pirca-cause")).andExpect(status().isConflict())
+                .andReturn();
 
-        assertThat(output.getAll())
-                .contains("Pirca error TEST_FAILED has a cause")
-                .contains("secret-cause-detail")
-                .contains("IllegalStateException")
-                .contains("at cl.pirca.lib.errors.");
+        assertThat(output.getAll()).doesNotContain("Pirca error").doesNotContain("secret-cause-detail");
+        Object stored = result.getRequest().getAttribute("cl.pirca.lib.errors.EXCEPTION");
+        assertThat(stored).isSameAs(result.getResolvedException()).isInstanceOf(TestException.class);
+        assertThat(((Throwable) stored).getCause()).isInstanceOf(IllegalStateException.class);
     }
 
     @ParameterizedTest
@@ -98,6 +101,65 @@ class ErrorsControllerAdviceTest {
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(body).doesNotContain("secret-internal-detail").doesNotContain("TestController");
+    }
+
+    @Test
+    void anUnexpectedExceptionIsNotLoggedByTheAdvice(CapturedOutput output) throws Exception {
+        mockMvc.perform(get("/boom")).andExpect(status().isInternalServerError());
+
+        assertThat(output.getAll()).doesNotContain("Unexpected error");
+    }
+
+    @Test
+    void aPircaExceptionIsStoredInTheRequestAttribute() throws Exception {
+        MvcResult result = mockMvc.perform(get("/pirca")).andReturn();
+
+        Object stored = result.getRequest().getAttribute("cl.pirca.lib.errors.EXCEPTION");
+        assertThat(stored).isNotNull().isSameAs(result.getResolvedException());
+        assertThat(stored).isInstanceOf(TestException.class);
+    }
+
+    @Test
+    void anUnexpectedExceptionIsStoredInTheRequestAttribute() throws Exception {
+        MvcResult result = mockMvc.perform(get("/boom")).andReturn();
+
+        Object stored = result.getRequest().getAttribute("cl.pirca.lib.errors.EXCEPTION");
+        assertThat(stored).isNotNull().isSameAs(result.getResolvedException());
+        assertThat(stored).isInstanceOf(IllegalStateException.class);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"GET, /missing, 404", "POST, /pirca, 405"})
+    void aSpringMvcErrorIsStoredInTheRequestAttribute(String method, String path, int status)
+            throws Exception {
+        MvcResult result = mockMvc.perform(request(HttpMethod.valueOf(method), path))
+                .andExpect(status().is(status)).andReturn();
+
+        Object stored = result.getRequest().getAttribute("cl.pirca.lib.errors.EXCEPTION");
+        assertThat(stored).isNotNull().isSameAs(result.getResolvedException());
+    }
+
+    @Test
+    void whenAskedToLogTheGeneric500IsLoggedOnceAndStillStored(CapturedOutput output)
+            throws Exception {
+        MockMvc logging = MockMvcBuilders.standaloneSetup(new TestController())
+                .setControllerAdvice(new ErrorsControllerAdvice(true)).build();
+
+        MvcResult result = logging.perform(get("/boom")).andReturn();
+
+        assertThat(output.getAll().split("Unexpected error", -1)).hasSize(2);
+        assertThat(result.getRequest().getAttribute("cl.pirca.lib.errors.EXCEPTION"))
+                .isSameAs(result.getResolvedException());
+    }
+
+    @Test
+    void whenAskedToLogAPircaExceptionIsStillNotLogged(CapturedOutput output) throws Exception {
+        MockMvc logging = MockMvcBuilders.standaloneSetup(new TestController())
+                .setControllerAdvice(new ErrorsControllerAdvice(true)).build();
+
+        logging.perform(get("/pirca-cause")).andExpect(status().isConflict());
+
+        assertThat(output.getAll()).doesNotContain("Pirca error").doesNotContain("secret-cause-detail");
     }
 
     @Test

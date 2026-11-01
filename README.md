@@ -28,8 +28,8 @@ public class ExpenseNotFoundException extends PircaException {
 ```
 
 To keep the original exception when wrapping another one, use the constructor that also takes a
-cause. The cause is optional; it is logged by `ErrorsControllerAdvice` (with its stack trace) and
-never sent in the answer:
+cause. The cause is optional; it stays in the exception, which `lib-logging` reads, and it is never
+sent in the answer:
 
 ```java
 public ExpenseNotFoundException(String id, Throwable cause) {
@@ -53,8 +53,8 @@ for each error. The status is fixed by the class; whoever throws it gives the co
 throw new NotFoundException("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.");
 ```
 
-Each one also has a `(code, message, cause)` constructor. The cause is optional, it is logged by
-`ErrorsControllerAdvice` (with its stack trace) and never sent in the answer:
+Each one also has a `(code, message, cause)` constructor. The cause is optional, it stays in the
+exception, which `lib-logging` reads, and it is never sent in the answer:
 
 ```java
 throw new NotFoundException("EXPENSE_NOT_FOUND", "Expense " + id + " was not found.", ex);
@@ -77,7 +77,7 @@ A `PircaException` is answered with its own status:
 }
 ```
 
-Any other exception is answered with a generic 500. Its message and stack trace are logged, never
+Any other exception is answered with a generic 500. Its message and stack trace are never
 sent:
 
 ```json
@@ -91,6 +91,20 @@ sent:
 ```
 
 No trace or correlation id is added (left to `lib-logging`).
+
+#### Contract with lib-logging
+
+`ErrorsControllerAdvice` does not log. Every exception it answers is stored, as the same instance, in
+the request attribute `cl.pirca.lib.errors.EXCEPTION` (a `Throwable`; constant
+`ErrorsControllerAdvice.EXCEPTION_ATTRIBUTE`), so that `lib-logging` writes one line per request. It is
+stored for a `PircaException`, for any other exception (the generic 500) and for Spring MVC's own errors
+(404, 405, 400...).
+
+Without `lib-logging` on the classpath a 500 would leave no log, so the library detects the class
+`cl.pirca.lib.logging.RequestLoggingFilter` by name (no dependency on `lib-logging`): when it is missing,
+the advice logs the generic 500 once, with its stack trace. Nothing else is logged by `lib-errors`. A
+bean created with `new ErrorsControllerAdvice()` never logs; `new ErrorsControllerAdvice(true)` logs the
+500.
 
 To replace the advice, define your own bean of type `ErrorsControllerAdvice`; the library's one
 backs off (`@ConditionalOnMissingBean`).
