@@ -145,6 +145,15 @@ build. A rule of a layer that is not excluded fails if the layer has no classes.
 
 ## Publish
 
+Merging to `main` publishes automatically. The workflow `.github/workflows/publish.yml` runs
+`./gradlew release` on every push to `main`, with the workflow's own `GITHUB_TOKEN`. If the version in
+`build.gradle` is not yet in the registry, it is published and the git tag `vX.Y.Z` is created (if it
+does not exist). If the version is already there, the run skips publishing and ends successfully, so a
+merge that leaves the version unchanged is harmless. To release, raise the version in `build.gradle`.
+`./gradlew release` can also be run locally, but it pushes the tag, so it is meant for CI.
+
+The manual way, below, still works and is also skipped when the version is already published.
+
 Local publishing (to consume it from another project on the same machine):
 
 ```bash
