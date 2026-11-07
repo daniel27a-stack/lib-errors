@@ -3,6 +3,10 @@
 // Publishing to GitHub Packages needs a token with write:packages, read at build time from the
 // environment (GITHUB_ACTOR / GITHUB_TOKEN) or from Gradle properties (gpr.user / gpr.token, in
 // ~/.gradle/gradle.properties). Never write it in this project.
+//
+// Publishing is idempotent: a publish task is skipped when the version is already in the registry.
+// `release` publishes and then creates the git tag v<version> if the run published and the tag is
+// missing; CI calls it on every push to main (see .github/workflows/publish.yml).
 publishing {
     publications {
         maven(MavenPublication) {
@@ -19,4 +23,83 @@ publishing {
             }
         }
     }
+}
+
+// True once this run has uploaded the version to a registry.
+ext.publishedNow = false
+
+// Does the pom of this publication already exist in the target repository?
+def versionPublished = { PublishToMavenRepository task ->
+    def pub = task.publication
+    def base = task.repository.url.toString().replaceAll('/+$', '')
+    def path = "${pub.groupId.replace('.', '/')}/${pub.artifactId}/${pub.version}/${pub.artifactId}-${pub.version}.pom"
+    def target = URI.create("${base}/${path}")
+    if (target.scheme == 'file') {
+        return new File(target).exists()
+    }
+    def user = System.getenv('GITHUB_ACTOR') ?: project.findProperty('gpr.user')
+    def token = System.getenv('GITHUB_TOKEN') ?: project.findProperty('gpr.token')
+    def code
+    try {
+        def conn = (HttpURLConnection) target.toURL().openConnection()
+        conn.requestMethod = 'GET'
+        if (user && token) {
+            conn.setRequestProperty('Authorization',
+                    'Basic ' + "${user}:${token}".bytes.encodeBase64().toString())
+        }
+        code = conn.responseCode
+        conn.disconnect()
+    } catch (IOException e) {
+        throw new GradleException("Cannot check whether ${pub.version} is published at ${target}: ${e.message}", e)
+    }
+    if (code == 200) return true
+    if (code == 404) return false
+    throw new GradleException("Cannot check whether ${pub.version} is published: ${target} answered HTTP ${code}. " +
+            'Check GITHUB_ACTOR / GITHUB_TOKEN (the token needs read access to the registry).')
+}
+
+tasks.withType(PublishToMavenRepository).configureEach { task ->
+    onlyIf {
+        if (versionPublished(task)) {
+            logger.lifecycle("Version ${task.publication.version} already published; skipping")
+            return false
+        }
+        return true
+    }
+    doLast {
+        rootProject.ext.publishedNow = true
+    }
+}
+
+def git = { List<String> args ->
+    def proc = new ProcessBuilder((['git'] + args)*.toString()).directory(projectDir).redirectErrorStream(true).start()
+    def out = proc.inputStream.text
+    return [proc.waitFor(), out.trim()]
+}
+
+tasks.register('tagRelease') {
+    group = 'publishing'
+    description = 'Creates and pushes the git tag v<version> if this run published and the tag is missing.'
+    mustRunAfter 'publish'
+    onlyIf { rootProject.ext.publishedNow }
+    doLast {
+        def tag = "v${project.version}"
+        def (lsCode, lsOut) = git(['ls-remote', '--tags', 'origin', "refs/tags/${tag}"])
+        if (lsCode != 0) throw new GradleException("git ls-remote failed: ${lsOut}")
+        if (lsOut) {
+            logger.lifecycle("Tag ${tag} already exists; nothing to do")
+            return
+        }
+        def (tagCode, tagOut) = git(['tag', tag])
+        if (tagCode != 0) throw new GradleException("git tag ${tag} failed: ${tagOut}")
+        def (pushCode, pushOut) = git(['push', 'origin', tag])
+        if (pushCode != 0) throw new GradleException("git push origin ${tag} failed: ${pushOut}")
+        logger.lifecycle("Created tag ${tag}")
+    }
+}
+
+tasks.register('release') {
+    group = 'publishing'
+    description = 'Publishes the version if it is not in the registry yet, then tags it.'
+    dependsOn 'publish', 'tagRelease'
 }
